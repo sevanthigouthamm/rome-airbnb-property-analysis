@@ -1,0 +1,399 @@
+---
+title: "AD699 Final Project"
+author: "Sevanthi Goutham"
+date: "2024-04-14"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(readr)
+library(dplyr)
+romelistings <- read_csv("~/Downloads/rome_listings.csv")
+table(romelistings$neighbourhood_cleansed)
+filtereddata <- romelistings %>%
+  filter(! (neighbourhood_cleansed %in% c("I Centro Storico", 
+         "VII San Giovanni/Cinecittà", 
+         "II Parioli/Nomentano", 
+         "XIII Aurelia", 
+         "XII Monte Verde", 
+         "V Prenestino/Centocelle")))
+
+sum(is.na(filtereddata))
+colSums(is.na(filtereddata))
+
+```
+
+
+
+```{r}
+filtereddata <- subset(filtereddata, select = -c(neighbourhood_group_cleansed, bathrooms, calendar_updated))
+
+filtereddata$bedrooms <- ifelse(is.na(filtereddata$bedrooms), filtereddata$beds, filtereddata$bedrooms)
+filtereddata$beds <- ifelse(is.na(filtereddata$beds), filtereddata$bedrooms, filtereddata$beds)
+filtereddata <- subset(filtereddata, complete.cases(beds))
+
+
+filtereddata <- subset(filtereddata, select = -c(neighbourhood, host_neighbourhood, host_about, neighborhood_overview, host_location, license, description))
+
+filtereddata$host_response_time <- ifelse(filtereddata$host_response_time == "N/A", NA, filtereddata$host_response_time)
+filtereddata$host_response_rate <- ifelse(filtereddata$host_response_rate == "N/A", NA, filtereddata$host_response_rate)
+filtereddata$host_acceptance_rate <- ifelse(filtereddata$host_acceptance_rate == "N/A", NA, filtereddata$host_acceptance_rate)
+filtereddata <- subset(filtereddata, complete.cases(filtereddata[, c("host_response_time", "host_response_rate", "host_acceptance_rate")]))
+
+filtereddata <- subset(filtereddata, complete.cases(reviews_per_month))
+filtereddata <- subset(filtereddata, complete.cases(filtereddata[, c("beds", "host_is_superhost", "review_scores_communication", "bathrooms_text")]))
+filtereddata <- subset(filtereddata, complete.cases(host_is_superhost))
+filtereddata <- subset(filtereddata, complete.cases(review_scores_communication))
+
+sum(is.na(filtereddata))
+```
+
+Now, I want to explore some of the numerical variables to see if they have outliers, so that I can eliminate those outliers.
+```{r}
+#Looking at outliers
+summary(filtereddata$minimum_nights)
+summary(filtereddata$host_listings_count)
+summary(filtereddata$host_total_listings_count)
+summary(filtereddata$accommodates)
+```
+
+```{r}
+#eliminating outliers: minimum nights
+threshold <- 3 * sd(filtereddata$minimum_nights)
+outliers <- filtereddata$minimum_nights > mean(filtereddata$minimum_nights) + threshold | filtereddata$minimum_nights < mean(filtereddata$minimum_nights) - threshold
+filtereddata <- filtereddata[!outliers, ]
+
+#eliminating outliers: host listing count
+threshold <- 3 * sd(filtereddata$host_listings_count)
+outliers <- filtereddata$host_listings_count > mean(filtereddata$host_listings_count) + threshold | filtereddata$host_listings_count < mean(filtereddata$host_listings_count) - threshold
+filtereddata <- filtereddata[!outliers, ]
+
+#eliminating outliers: host total listing count
+threshold <- 3 * sd(filtereddata$host_total_listings_count)
+outliers <- filtereddata$host_total_listings_count > mean(filtereddata$host_total_listings_count) + threshold | filtereddata$host_total_listings_count < mean(filtereddata$host_total_listings_count) - threshold
+filtereddata <- filtereddata[!outliers, ]
+
+#eliminating outliers: accommodates
+threshold <- 3 * sd(filtereddata$accommodates)
+outliers <- filtereddata$accommodates > mean(filtereddata$accommodates) + threshold | filtereddata$accommodates < mean(filtereddata$accommodates) - threshold
+filtereddata <- filtereddata[!outliers, ]
+```
+
+
+```{r}
+#converting Price to numerical
+filtereddata$price <- as.numeric(gsub("\\$", "", trimws(filtereddata$price)))
+summary(filtereddata$price)
+filtereddata <- subset(filtereddata, complete.cases(price))
+
+#converting host_response_rate and host_acceptance_rate to proportions
+
+filtereddata$host_response_rate <- as.numeric(gsub("%", "", filtereddata$host_response_rate)) / 100
+filtereddata$host_acceptance_rate <- as.numeric(gsub("%", "", filtereddata$host_acceptance_rate)) / 100
+```
+
+
+
+KNN
+```{r}
+knn1 <- filtereddata
+rental <- knn1[157, ]
+print(rental)
+
+is_dataframe <- is.data.frame(rental)
+print(is_dataframe)
+```
+
+```{r}
+amenities <- knn1$amenities
+
+outcome_amenity <- "Kitchen"
+
+knn1$has_outcome_amenity <- as.numeric(grepl(outcome_amenity, amenities, ignore.case = TRUE))
+```
+
+```{r}
+knn1$has_outcome_amenity <- as.factor(knn1$has_outcome_amenity)
+
+levels(knn1$has_outcome_amenity) <- c("No", "Yes")
+
+str(knn1)
+```
+
+
+```{r}
+amenity_table <- table(knn1$has_outcome_amenity)
+amenity_table
+```
+
+```{r}
+head(knn1)
+```
+
+
+```{r}
+set.seed(1942)
+
+train_rows <- sample(nrow(knn1), 0.6 * nrow(knn1))
+
+validation_rows <- setdiff(1:nrow(knn1), train_rows)
+
+training_set <- knn1[train_rows, ]
+validation_set <- knn1[validation_rows, ]
+
+dim(training_set)
+dim(validation_set)
+```
+
+```{r}
+variables <- c("price","host_total_listings_count", "accommodates", "bedrooms","availability_30", "minimum_nights", "maximum_nights")
+
+
+ttest_results <- list()
+
+
+for (variable in variables) {
+  yes <- training_set[training_set$has_outcome_amenity == "Yes", variable]
+  no <- training_set[training_set$has_outcome_amenity == "No", variable]
+  
+  ttest_result <- t.test(yes, no)
+  
+  ttest_results[[variable]] <- ttest_result
+}
+
+# Print the results
+for (variable in variables) {
+  cat("Variable:", variable, "\n")
+  print(ttest_results[[variable]])
+  cat("\n")
+}
+
+```
+
+```{r}
+library(caret)
+
+preprocess <- c("center", "scale")
+
+preprocess_training_set <- preProcess(training_set, method = preprocess)
+
+training_normalized <- predict(preprocess_training_set, newdata = training_set)
+
+validation_normalized <- predict(preprocess_training_set, newdata = validation_set)
+
+rental1 <- predict(preprocess_training_set, newdata= rental)
+
+```
+
+```{r}
+head(rental1)
+```
+
+
+```{r}
+library(FNN)
+input_variables <- c("host_total_listings_count", "accommodates", "bedrooms","availability_30", "minimum_nights")
+```
+
+
+
+```{r}
+library(caret)
+
+print("Factor Levels in Training Set:")
+print(levels(training_set$has_outcome_amenity))
+
+print("Factor Levels in Validation Set:")
+print(levels(validation_set$has_outcome_amenity))
+
+
+knn_model <- knn(train = training_normalized[, input_variables],
+                 test = validation_normalized[, input_variables],
+                 cl = training_set$has_outcome_amenity,
+                 k = 1)
+
+print("knn levels")
+print(levels(knn_model))
+
+
+knn_model <- factor(knn_model, levels = levels(validation_set$has_outcome_amenity))
+
+
+k_values <- seq(1, 30)
+accuracy_scores <- numeric(length(k_values))
+
+for (i in seq_along(k_values)) {
+  k <- k_values[i]
+  knn_model <- knn(train = training_normalized[, input_variables],
+                   test = validation_normalized[, input_variables],
+                   cl = training_set$has_outcome_amenity,
+                   k = k)
+  
+  
+  knn_model <- factor(knn_model, levels = levels(validation_set$has_outcome_amenity))
+  
+  accuracy_scores[i] <- sum(knn_model == validation_set$has_outcome_amenity) / length(validation_set$has_outcome_amenity)
+}
+
+optimal_k <- k_values[which.max(accuracy_scores)]
+print(paste("Optimal k-value:", optimal_k))
+```
+```{r}
+library(ggplot2)
+
+plot_data <- data.frame(k = k_values, accuracy = accuracy_scores)
+
+ggplot(plot_data, aes(x = k, y = accuracy)) +
+  geom_point() +
+  geom_line() +
+  labs(x = "k-value", y = "Accuracy") +
+  ggtitle("Accuracy vs. k-value")
+
+```
+
+```{r}
+training1_subset <- training_normalized[, input_variables]
+rental1_subset <- rental1[, input_variables]
+
+k <- 25
+knn_model <- knn(train = training1_subset, test = rental1_subset, cl = training_set$has_outcome_amenity, k = k)
+
+predicted_class <- knn_model
+
+print(predicted_class)
+
+```
+
+
+```{r}
+nearest_neighbors2 <- as.vector(attributes(knn_model)$nn.index)
+
+nearest_neighbors3 <- training_set[nearest_neighbors2, ]
+
+nearest_neighbors_info <- nearest_neighbors3[, c("name", "listing_url", "has_outcome_amenity")]
+print(nearest_neighbors_info)
+
+```
+
+
+Classification tree 
+```{r}
+classification_tree <- filtereddata
+classification_tree$is_instantly_bookable <- as.numeric(classification_tree$host_response_time == "within an hour" &  classification_tree$has_availability==TRUE & classification_tree$host_acceptance_rate == 1 & classification_tree$host_response_rate == 1)
+
+```
+
+```{r}
+classification_tree$is_instantly_bookable <- as.factor(classification_tree$is_instantly_bookable)
+levels(classification_tree$is_instantly_bookable) <- c("No", "Yes")
+```
+
+```{r}
+tablee <- table(classification_tree$is_instantly_bookable)
+tablee
+```
+```{r}
+str(classification_tree)
+```
+
+```{r}
+classification <- subset(classification_tree, select = c(host_since,host_response_time, host_response_rate, host_acceptance_rate,host_is_superhost,host_listings_count,host_verifications,neighbourhood_cleansed, property_type, price,review_scores_rating,reviews_per_month, is_instantly_bookable, minimum_nights, maximum_nights,  accommodates, bedrooms, has_availability))  
+str(classification)
+```
+```{r}
+property_types<- names(sort(table(classification$property_type), decreasing = TRUE))[1:5]
+property_types
+filtered_data1 <- subset(classification, property_type %in% property_types)
+
+neighbourhood <- names(sort(table(filtered_data1$neighbourhood_cleansed), decreasing = TRUE))[1:7]
+neighbourhood
+filtered_data3 <- subset(filtered_data1, neighbourhood_cleansed %in% neighbourhood)
+
+
+```
+
+```{r}
+filtered_data3 <- droplevels(filtered_data3)
+```
+
+```{r}
+str(filtered_data3)
+```
+
+
+```{r}
+library(caret)
+
+set.seed(1942) 
+
+train_indices <- createDataPartition(y = filtered_data3$is_instantly_bookable, p = 0.6, list = FALSE)
+
+training_data <- classification[train_indices, ]
+validation_data <- classification[-train_indices, ]
+
+```
+
+
+```{r}
+set.seed(1942)
+library(rpart)
+tree_model <- rpart(is_instantly_bookable ~ ., data = training_data)
+summary(tree_model) 
+```
+
+```{r}
+library(rpart.plot)
+rpart.plot(tree_model)
+```
+```{r}
+row157 <- classification_tree[157, ]
+```
+
+```{r}
+row2 <- classification_tree[2,]
+```
+
+```{r}
+prediction <- predict(tree_model, newdata = row157 )
+prediction
+```
+
+```{r}
+cv <- rpart.control(cp = 0, minsplit = 2, xval = 5)
+
+cv_tree_model <- rpart(is_instantly_bookable ~ ., data = training_data, control = cv)
+
+cp_table <- cv_tree_model$cptable
+
+print(cp_table)
+
+optimal_cp <- cp_table[which.min(cp_table[, "xerror"]), "CP"]
+cat("Optimal CP value:", optimal_cp)
+```
+```{r}
+optimal_tree_model <- rpart(is_instantly_bookable ~ ., data = training_data, control = rpart.control(cp =0.002197802 , minsplit = 2))
+
+print(optimal_tree_model)
+
+```
+
+```{r}
+rpart.plot(optimal_tree_model, type= 4, extra= 104)
+```
+```{r}
+prediction1 <- predict(optimal_tree_model, newdata = row157, type = "class")
+
+print(prediction)
+```
+
+
+
+
+
+
+
+
