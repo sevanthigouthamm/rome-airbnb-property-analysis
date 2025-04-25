@@ -46,11 +46,15 @@ Steps:
 
 * Tuned K values from 1 to 30.
 
+![Accuracy_vs_k-value](images/Accuracy_vs_k-value.png)
+
 * Chose optimal K = 25.
 
 * Predicted random property (row 157) as having a kitchen.
 
-### Decision Tree Model
+![prediction_for_row157](images/prediction_for_row157.png)
+
+### Classification Tree Model
 
 Objective: Predict whether a listing is instantly bookable.
 
@@ -68,9 +72,13 @@ Steps:
 
 * Built an initial tree without cross-validation.
 
+![classification_tree](images/classification_tree.png)
+
 * Built an optimal tree using 5-fold cross-validation (with CP pruning).
 
 * Predicted random property (row 157) as Not Instantly Bookable.
+
+![classification_tree_for_row157](images/classification_tree_for_row157.png)
 
 ### Requirements
 
